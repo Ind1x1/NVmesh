@@ -1,0 +1,54 @@
+Nodes:
+  - name: "node-1"
+    ip: "192.168.1.10"
+    gpu_indices: [0, 1, 2, 3]
+    
+  - name: "node-2" 
+    ip: "192.168.1.11"
+    gpu_indices: [0, 1, 2, 3]
+
+Config:
+  - Case: 1
+    BufferSize:
+      - Size: "1024KB:16MB"
+        ScaleType: "<<"
+    Engine: "SM"
+    iterations: 10
+    Warmup: 10
+    loopCount: 1
+    NumSM:
+      - SM: "1:32"
+        ScaleType: "<<"
+    Pipes:
+      - pipes: "1:8"
+        ScaleType: "<<"
+
+  - Case: 2
+    BufferSize: 
+      - Size: [1024KB, 2MB, 4MB, 8MB, 16MB]
+    Engine: "CE"
+    iterations: 10
+    Warmup: 10
+    loopCount: 1
+    NumSM:
+      - SM: [1, 2, 4, 8, 16, 32]
+    Pipes:
+      - pipes: [1, 2, 4, 8]
+
+  - Case: 3
+    BufferSize:
+      - Size: "512KB:8MB"
+        ScaleType: "linear"
+    Engine: "SM"
+    iterations: 5
+    Warmup: 5
+    loopCount: 2
+    NumSM:
+      - SM: "2:16"
+        ScaleType: "<<"
+    Pipes:
+      - pipes: [1, 3, 5, 7]
+    
+
+   
+
