@@ -15,46 +15,46 @@
 
 constexpr unsigned long long WARMUP_ITERATIONS = 1;
 
-struct ICommBackend {
-    virtual ~ICommBackend() = default;
-    virtual int worldSize() const = 0;
-    virtual int worldRank() const = 0;
-};
+// struct ICommBackend {
+//     virtual ~ICommBackend() = default;
+//     virtual int worldSize() const = 0;
+//     virtual int worldRank() const = 0;
+// };
 
-//OPTIMIZE EDIT THIS
-class MPIBackend : public ICommBackend {
-public:
-        int worldSize() const override { return MPIWrapper::getWorldSize(); }
-        int worldRank() const override { return MPIWrapper::getWorldRank(); }
-};
+// //OPTIMIZE EDIT THIS
+// class MPIBackend : public ICommBackend {
+// public:
+//         int worldSize() const override { return MPIWrapper::getWorldSize(); }
+//         int worldRank() const override { return MPIWrapper::getWorldRank(); }
+// };
 
-class Comm {
-public:
-    static int getWorldSize() { return instance().impl_->worldSize(); }
-    static int getWorldRank() { return instance().impl_->worldRank(); }
+// class Comm {
+// public:
+//     static int getWorldSize() { return instance().impl_->worldSize(); }
+//     static int getWorldRank() { return instance().impl_->worldRank(); }
 
-    static int worldSize() { return getWorldSize(); }
-    static int worldRank() { return getWorldRank(); }
+//     static int worldSize() { return getWorldSize(); }
+//     static int worldRank() { return getWorldRank(); }
 
-    static void useMPI() { instance().impl_ = std::make_unique<MPIBackend>(); }
-    // static void useshuttle() { instance().impl_ = std::make_unique<ShuttleBackend>(); }
+//     static void useMPI() { instance().impl_ = std::make_unique<MPIBackend>(); }
+//     // static void useshuttle() { instance().impl_ = std::make_unique<ShuttleBackend>(); }
 
-    static void install(std::unique_ptr<ICommBackend> backend) { 
-        instance().impl_ = std::move(backend); 
-    }
+//     static void install(std::unique_ptr<ICommBackend> backend) { 
+//         instance().impl_ = std::move(backend); 
+//     }
 
-private:
-    Comm() {
-        impl_ = std::make_unique<MPIBackend>();
-    }
+// private:
+//     Comm() {
+//         impl_ = std::make_unique<MPIBackend>();
+//     }
 
-    static Comm& instance() {
-        static Comm self;
-        return self;
-    }
+//     static Comm& instance() {
+//         static Comm self;
+//         return self;
+//     }
 
-    std::unique_ptr<ICommBackend> impl_;
-};
+//     std::unique_ptr<ICommBackend> impl_;
+// };
 
 class Copy {
 public:
@@ -64,7 +64,7 @@ public:
     CopyDirection copyDirection;
 
     int iterations;
-    int executingRank;
+    int executingMPIRank;
 
     Copy(std::shared_ptr<MemoryAllocation> _dst, std::shared_ptr<MemoryAllocation> _src, CopyDirection _copyDirection, CopyType _copyType, int _iterations = DEFAULT_ITERATIONS):
         dst(_dst), 
@@ -73,9 +73,9 @@ public:
         copyType(_copyType), 
         iterations(_iterations) {
         if (copyDirection == COPY_DIRECTION_WRITE) {
-            executingRank = dst->CommRank;
+            executingMPIRank = dst->MPIRank;
         } else {
-            executingRank = src->CommRank;
+            executingMPIRank = src->MPIRank;
         }
     }
 };

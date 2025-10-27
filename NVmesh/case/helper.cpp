@@ -9,6 +9,7 @@
 
 #include "helper.h"
 
+
 static std::string getDeviceDisplayInfo(int deviceOrdinal) {
     std::stringstream sstream;
     CUdevice dev;

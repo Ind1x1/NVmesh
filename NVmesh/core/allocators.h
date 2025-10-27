@@ -10,7 +10,7 @@ class MemoryAllocation {
 public:
     void *ptr = nullptr;
     size_t allocationSize = 0;
-    int CommRank = -1;
+    int MPIRank = -1;
     static inline int uniqueIdCounter = 0;
     int uniqueId = 0;
 
@@ -35,7 +35,7 @@ public:
 
 class DeviceMemoryAllocation : public MemoryAllocation {
 public:
-    DeviceMemoryAllocation(size_t _allocationSize, int _CommRank);
+    DeviceMemoryAllocation(size_t _allocationSize, int _MPIRank);
     ~DeviceMemoryAllocation();
 
     static std::string getName() {
@@ -45,7 +45,7 @@ public:
 
 class HostMemoryAllocation : public MemoryAllocation {
 public:
-    HostMemoryAllocation(size_t _allocationSize, int _CommRank);
+    HostMemoryAllocation(size_t _allocationSize, int _MPIRank);
     ~HostMemoryAllocation();
 
     static std::string getName() {
@@ -63,13 +63,13 @@ private:
     size_t roundedUpAllocationSize;
     
 public:
-    MultinodeMemoryAllocationBase(size_t _allocationSize, int _CommRank, CUmemLocationType location);
+    MultinodeMemoryAllocationBase(size_t _allocationSize, int _MPIRank, CUmemLocationType location);
     virtual ~MultinodeMemoryAllocationBase();
 };
 
 class MultinodeMemoryAllocationUnicast : public MultinodeMemoryAllocationBase {
 public:
-    MultinodeMemoryAllocationUnicast(size_t _allocationSize, int _CommRank) : MultinodeMemoryAllocationBase(_allocationSize, _CommRank, CU_MEM_LOCATION_TYPE_DEVICE) {};
+    MultinodeMemoryAllocationUnicast(size_t _allocationSize, int _MPIRank) : MultinodeMemoryAllocationBase(_allocationSize, _MPIRank, CU_MEM_LOCATION_TYPE_DEVICE) {};
     static bool filter();
     
     static std::string getName() {
@@ -79,7 +79,7 @@ public:
     
 class MultinodeMemoryAllocationEGM : public MultinodeMemoryAllocationBase {
 public:
-    MultinodeMemoryAllocationEGM(size_t _allocationSize, int _CommRank) : MultinodeMemoryAllocationBase(_allocationSize, _CommRank, CU_MEM_LOCATION_TYPE_HOST_NUMA) {};
+    MultinodeMemoryAllocationEGM(size_t _allocationSize, int _MPIRank) : MultinodeMemoryAllocationBase(_allocationSize, _MPIRank, CU_MEM_LOCATION_TYPE_HOST_NUMA) {};
     static bool filter();
     
     static std::string getName() {
@@ -100,14 +100,14 @@ private:
     CUmemPoolPtrExportData data;
     CUmemAccessDesc desc = {};
 public:
-    MultinodeMemoryPoolAllocationBase(size_t _allocationSize, int _CommRank, CUmemLocationType location);
+    MultinodeMemoryPoolAllocationBase(size_t _allocationSize, int _MPIRank, CUmemLocationType location);
     virtual ~MultinodeMemoryPoolAllocationBase();
     virtual std::vector<CUmemoryPool> initPoolsLazy();
 };
 
 class MultinodeMemoryPoolAllocationUnicast : public MultinodeMemoryPoolAllocationBase {
 public:
-    MultinodeMemoryPoolAllocationUnicast(size_t _allocationSize, int _CommRank) : MultinodeMemoryPoolAllocationBase(_allocationSize, _CommRank, CU_MEM_LOCATION_TYPE_DEVICE) {};
+    MultinodeMemoryPoolAllocationUnicast(size_t _allocationSize, int _MPIRank) : MultinodeMemoryPoolAllocationBase(_allocationSize, _MPIRank, CU_MEM_LOCATION_TYPE_DEVICE) {};
     static bool filter();
     
     static std::string getName() {
@@ -117,7 +117,7 @@ public:
 
 class MultinodeMemoryPoolAllocationEGM : public MultinodeMemoryPoolAllocationBase {
 public:
-    MultinodeMemoryPoolAllocationEGM(size_t _allocationSize, int _CommRank) : MultinodeMemoryPoolAllocationBase(_allocationSize, _CommRank, CU_MEM_LOCATION_TYPE_HOST_NUMA) {};
+    MultinodeMemoryPoolAllocationEGM(size_t _allocationSize, int _MPIRank) : MultinodeMemoryPoolAllocationBase(_allocationSize, _MPIRank, CU_MEM_LOCATION_TYPE_HOST_NUMA) {};
     static bool filter();
     
     static std::string getName() {
@@ -131,7 +131,7 @@ private:
     static inline std::multimap< std::pair<size_t, int>, T* > pool;
     T *current;
 public:
-    AllocationPool(size_t _allocationSize, int _CommRank);
+    AllocationPool(size_t _allocationSize, int _MPIRank);
     ~AllocationPool();
 
     static void clear();

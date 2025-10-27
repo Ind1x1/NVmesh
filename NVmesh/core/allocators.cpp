@@ -9,43 +9,47 @@
 #include "nvmesh.h"
 #include "kernels.cuh"
 
+inline unsigned int getCuMemFlagByInt(int isGB200) {
+    return (isGB200 == 1) ? CU_MEM_HANDLE_TYPE_FABRIC : CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+}
+
 unsigned long long MemoryAllocation::check(int value, CopyType copyType, int iterations) {
-    if (CommRank == Comm::getWorldRank()) {
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         return checkBuffer(ptr, value, allocationSize, CU_STREAM_PER_THREAD, copyType, iterations);
     }
     return 0;
 }
 
 void MemoryAllocation::memset(int value, CopyType copyType, MemoryPurpose memoryPurpose) {
-    if (CommRank == Comm::getWorldRank()) {
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         memsetBuffer(ptr, value, allocationSize, CU_STREAM_PER_THREAD, copyType, memoryPurpose);
     }
 }
 
-DeviceMemoryAllocation::DeviceMemoryAllocation(size_t _allocationSize, int _CommRank) {
-    CommRank = _CommRank;
-    if (CommRank == Comm::getWorldRank()) {
+DeviceMemoryAllocation::DeviceMemoryAllocation(size_t _allocationSize, int _MPIrank) {
+    MPIrank = _MPIrank;
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         allocationSize = _allocationSize;
         CU_ASSERT(cuMemAlloc((CUdeviceptr *) &ptr, _allocationSize));
     }
 }
 
 DeviceMemoryAllocation::~DeviceMemoryAllocation() {
-    if (CommRank == Comm::getWorldRank()) {
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         CU_ASSERT(cuMemFree((CUdeviceptr) ptr));
     }
 }
 
-HostMemoryAllocation::HostMemoryAllocation(size_t _allocationSize, int _CommRank) {
-    CommRank = _CommRank;
-    if (CommRank == Comm::getWorldRank()) {
+HostMemoryAllocation::HostMemoryAllocation(size_t _allocationSize, int _MPIrank) {
+    MPIrank = _MPIrank;
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         allocationSize = _allocationSize;
         CU_ASSERT(cuMemAllocHost(&ptr, _allocationSize));
     }
 }
 
 HostMemoryAllocation::~HostMemoryAllocation() {
-    if (CommRank == Comm::getWorldRank()) {
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         CU_ASSERT(cuMemFreeHost(ptr));
     }
 }
@@ -54,7 +58,7 @@ static size_t roundUp(size_t number, size_t multiple) {
     return ((number + multiple - 1) / multiple) * multiple;
 }
 
-MultinodeMemoryAllocationBase::MultinodeMemoryAllocationBase(size_t _allocationSize, int _CommRank, CUmemLocationType location) {
+MultinodeMemoryAllocationBase::MultinodeMemoryAllocationBase(size_t _allocationSize, int _MPIrank, CUmemLocationType location) {
     handleType = CU_MEM_HANDLE_TYPE_FABRIC:
     prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
     prop.requestedHandleTypes = handleType;
@@ -73,16 +77,16 @@ MultinodeMemoryAllocationBase::MultinodeMemoryAllocationBase(size_t _allocationS
 
     roundedUpAllocationSize = roundUp(_allocationSize, granularity);
 
-    if (_CommRank == Comm::getWorldRank()) {
+    if (_MPIrank == MPIWrapper::getWorldRank()) {
         CU_ASSERT(cuMemCreate(&handle, roundedUpAllocationSize, &prop, 0 /*flags*/));
 
         CU_ASSERT(cuMemExportToShareableHandle(&fh, handle, handleType, 0 /*flags*/));
     }
 
     //FIXME
-    MPI_Bcast(&fh, sizeof(fh), MPI_BYTE, _CommRank, MPI_COMM_WORLD);
+    MPI_Bcast(&fh, sizeof(fh), MPI_BYTE, _MPIrank, MPI_COMM_WORLD);
     
-    if (_CommRank != Comm::getWorldRank()) {
+    if (_MPIrank != MPIWrapper::getWorldRank()) {
         CU_ASSERT(cuMemImportFromShareableHandle(&handle, fh, handleType, 0 /*flags*/));
     }
 
@@ -92,7 +96,7 @@ MultinodeMemoryAllocationBase::MultinodeMemoryAllocationBase(size_t _allocationS
     CU_ASSERT(cuMemMap((CUdeviceptr) ptr, roundedUpAllocationSize, 0 /*offset*/, handle, 0 /*flags*/));
 
     // Map EGM memory on host on the exporting node
-    if ((_CommRank == Comm::getWorldRank()) && (location == CU_MEM_LOCATION_TYPE_HOST_NUMA)) {
+    if ((_MPIrank == MPIWrapper::getWorldRank()) && (location == CU_MEM_LOCATION_TYPE_HOST_NUMA)) {
         desc.location.type = CU_MEM_LOCATION_TYPE_HOST_NUMA;
         desc.location.id = 0;
         desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
@@ -104,7 +108,7 @@ MultinodeMemoryAllocationBase::MultinodeMemoryAllocationBase(size_t _allocationS
     desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
     CU_ASSERT(cuMemSetAccess((CUdeviceptr) ptr, roundedUpAllocationSize, &desc, 1 /*count*/));
 
-    CommRank = _CommRank;
+    MPIrank = _MPIrank;
     allocationSize = _allocationSize;
 
     // Make sure that everyone is done with mapping the fabric allocation
@@ -135,44 +139,44 @@ bool MultinodeMemoryAllocationEGM::filter() {
 };
 
 
-MultinodeMemoryPoolAllocationBase::MultinodeMemoryPoolAllocationBase(size_t _allocationSize, int _CommRank, CUmemLocationType location) {
+MultinodeMemoryPoolAllocationBase::MultinodeMemoryPoolAllocationBase(size_t _allocationSize, int _MPIrank, CUmemLocationType location) {
     allocationSize = _allocationSize;
-    CommRank = _CommRank;
+    MPIrank = _MPIrank;
     mem_location = location;
 
     if (!devicePoolsInitialized && mem_location == CU_MEM_LOCATION_TYPE_DEVICE) {
         devicePoolsInitialized = true;
-        device_pools.resize((Comm::getWorldSize()));
+        device_pools.resize((MPIWrapper::getWorldSize()));
         device_pools = initPoolsLazy();
     }
 
     if (!egmPoolsInitialized && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
         egmPoolsInitialized = true;
-        egm_pools.resize((Comm::getWorldSize()));
+        egm_pools.resize((MPIWrapper::getWorldSize()));
         egm_pools = initPoolsLazy();
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    if (_CommRank == Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
-        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, egm_pools[_CommRank], CU_STREAM_PER_THREAD));
+    if (_MPIrank == MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
+        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, egm_pools[_MPIrank], CU_STREAM_PER_THREAD));
         CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
         CU_ASSERT(cuMemPoolExportPointer(&data, (CUdeviceptr) ptr));
     }
-    if (_CommRank == Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE) {
-        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, device_pools[_CommRank], CU_STREAM_PER_THREAD));
+    if (_MPIrank == MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE) {
+        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, device_pools[_MPIrank], CU_STREAM_PER_THREAD));
         CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
         CU_ASSERT(cuMemPoolExportPointer(&data, (CUdeviceptr) ptr));
     }
 
     //FIXME MPI
-    MPI_Bcast(&data, sizeof(data), MPI_BYTE, _CommRank, MPI_COMM_WORLD);
+    MPI_Bcast(&data, sizeof(data), MPI_BYTE, _MPIrank, MPI_COMM_WORLD);
 
-    if (_CommRank != Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
-        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, egm_pools[_CommRank], &data));
+    if (_MPIrank != MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
+        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, egm_pools[_MPIrank], &data));
     }
-    if (_CommRank != Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE){
-        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, device_pools[_CommRank], &data));
+    if (_MPIrank != MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE){
+        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, device_pools[_MPIrank], &data));
     }
 
     //FIXME MPI
@@ -181,8 +185,8 @@ MultinodeMemoryPoolAllocationBase::MultinodeMemoryPoolAllocationBase(size_t _all
 
 std::vector<CUmemoryPool> MultinodeMemoryPoolAllocationBase::initPoolsLazy() {
     std::vector<CUmemoryPool> pools;
-    pools.resize(Comm::getWorldSize());
-    fh_vector.resize(Comm::getWorldSize());
+    pools.resize(MPIWrapper::getWorldSize());
+    fh_vector.resize(MPIWrapper::getWorldSize());
     handleType = CU_MEM_HANDLE_TYPE_FABRIC;
     poolProps.allocType = CU_MEM_ALLOCATION_TYPE_PINNED;
     poolProps.handleTypes = handleType;
@@ -195,25 +199,25 @@ std::vector<CUmemoryPool> MultinodeMemoryPoolAllocationBase::initPoolsLazy() {
         poolProps.location.id = nvmesh::getLocalCpuNumaNode();
     }
 
-    CU_ASSERT(cuMemPoolCreate(&pools[Comm::getWorldRank()], &poolProps));
+    CU_ASSERT(cuMemPoolCreate(&pools[MPIWrapper::getWorldRank()], &poolProps));
 
     // Set pool release threshold to reserve 1GB before it releases memory back to the OS - Pending investigation @ https://gitlab-master.nvidia.com/dcse-appsys/nvloom/-/issues/24
-    CU_ASSERT(cuMemPoolSetAttribute(pools[Comm::getWorldRank()], CU_MEMPOOL_ATTR_RELEASE_THRESHOLD, &thresholdSize));
-    CU_ASSERT(cuMemPoolExportToShareableHandle(&fh_vector[Comm::getWorldRank()], pools[Comm::getWorldRank()], handleType, 0 /*flags*/));
+    CU_ASSERT(cuMemPoolSetAttribute(pools[MPIWrapper::getWorldRank()], CU_MEMPOOL_ATTR_RELEASE_THRESHOLD, &thresholdSize));
+    CU_ASSERT(cuMemPoolExportToShareableHandle(&fh_vector[MPIWrapper::getWorldRank()], pools[MPIWrapper::getWorldRank()], handleType, 0 /*flags*/));
     //FIXME MPI
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Import handles of other pools to fill vector
-    for (int i = 0; i < Comm::getWorldSize(); i++) {
+    for (int i = 0; i < MPIWrapper::getWorldSize(); i++) {
         //FIXME MPI
         MPI_Bcast(&fh_vector[i], sizeof(CUmemFabricHandle), MPI_BYTE, i, MPI_COMM_WORLD);
-        if (i != Comm::getWorldRank()) {
+        if (i != MPIWrapper::getWorldRank()) {
             CU_ASSERT(cuMemPoolImportFromShareableHandle(&pools[i], (void *)&fh_vector[i], handleType, 0));
         }
     }
 
     // Set access for the pools
-    for (int i = 0; i < Comm::getWorldSize(); i++) {
+    for (int i = 0; i < MPIWrapper::getWorldSize(); i++) {
         if (mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
             desc.location.type = CU_MEM_LOCATION_TYPE_HOST_NUMA;
             desc.location.id = nvmesh::getLocalCpuNumaNode();
@@ -228,43 +232,43 @@ std::vector<CUmemoryPool> MultinodeMemoryPoolAllocationBase::initPoolsLazy() {
     return pools;
 }
 
-MultinodeMemoryPoolAllocationBase::MultinodeMemoryPoolAllocationBase(size_t _allocationSize, int _CommRank, CUmemLocationType location) {
+MultinodeMemoryPoolAllocationBase::MultinodeMemoryPoolAllocationBase(size_t _allocationSize, int _MPIrank, CUmemLocationType location) {
     allocationSize = _allocationSize;
-    CommRank = _CommRank;
+    MPIrank = _MPIrank;
     mem_location = location;
 
     if (!devicePoolsInitialized && mem_location == CU_MEM_LOCATION_TYPE_DEVICE) {
         devicePoolsInitialized = true;
-        device_pools.resize((Comm::getWorldSize()));
+        device_pools.resize((MPIWrapper::getWorldSize()));
         device_pools = initPoolsLazy();
     }
 
     if (!egmPoolsInitialized && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
         egmPoolsInitialized = true;
-        egm_pools.resize((Comm::getWorldSize()));
+        egm_pools.resize((MPIWrapper::getWorldSize()));
         egm_pools = initPoolsLazy();
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    if (_CommRank == Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
-        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, egm_pools[_CommRank], CU_STREAM_PER_THREAD));
+    if (_MPIrank == MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
+        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, egm_pools[_MPIrank], CU_STREAM_PER_THREAD));
         CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
         CU_ASSERT(cuMemPoolExportPointer(&data, (CUdeviceptr) ptr));
     }
-    if (_CommRank == Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE) {
-        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, device_pools[_CommRank], CU_STREAM_PER_THREAD));
+    if (_MPIrank == MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE) {
+        CU_ASSERT(cuMemAllocFromPoolAsync((CUdeviceptr *)&ptr, allocationSize, device_pools[_MPIrank], CU_STREAM_PER_THREAD));
         CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
         CU_ASSERT(cuMemPoolExportPointer(&data, (CUdeviceptr) ptr));
     }
 
-    MPI_Bcast(&data, sizeof(data), MPI_BYTE, _CommRank, MPI_COMM_WORLD);
+    MPI_Bcast(&data, sizeof(data), MPI_BYTE, _MPIrank, MPI_COMM_WORLD);
 
-    if (_CommRank != Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
-        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, egm_pools[_CommRank], &data));
+    if (_MPIrank != MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
+        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, egm_pools[_MPIrank], &data));
     }
-    if (_CommRank != Comm::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE){
-        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, device_pools[_CommRank], &data));
+    if (_MPIrank != MPIWrapper::getWorldRank() && mem_location == CU_MEM_LOCATION_TYPE_DEVICE){
+        CU_ASSERT(cuMemPoolImportPointer((CUdeviceptr*) &ptr, device_pools[_MPIrank], &data));
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -273,14 +277,14 @@ MultinodeMemoryPoolAllocationBase::MultinodeMemoryPoolAllocationBase(size_t _all
 MultinodeMemoryPoolAllocationBase::~MultinodeMemoryPoolAllocationBase() {
     CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
 
-    if (CommRank != Comm::getWorldRank()) {
+    if (MPIrank != MPIWrapper::getWorldRank()) {
         CU_ASSERT(cuMemFreeAsync((CUdeviceptr) ptr, CU_STREAM_PER_THREAD));
         CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    if (CommRank == Comm::getWorldRank()) {
+    if (MPIrank == MPIWrapper::getWorldRank()) {
         CU_ASSERT(cuMemFreeAsync((CUdeviceptr) ptr, CU_STREAM_PER_THREAD));
         CU_ASSERT(cuStreamSynchronize(CU_STREAM_PER_THREAD));
     }
@@ -301,14 +305,14 @@ bool MultinodeMemoryPoolAllocationEGM::filter() {
 };
 
 template<class T>
-AllocationPool<T>::AllocationPool(size_t _allocationSize, int _CommRank) {
+AllocationPool<T>::AllocationPool(size_t _allocationSize, int _MPIrank) {
     allocationSize = _allocationSize;
-    CommRank = _CommRank;
+    MPIrank = _MPIrank;
 
-    auto key = std::make_pair(allocationSize, CommRank);
+    auto key = std::make_pair(allocationSize, MPIrank);
     auto it = pool.find(key);
     if (it == pool.end()) {
-        current = new T(_allocationSize, _CommRank);
+        current = new T(_allocationSize, _MPIrank);
     } else {
         current = it->second;
         pool.erase(it);
@@ -319,7 +323,7 @@ AllocationPool<T>::AllocationPool(size_t _allocationSize, int _CommRank) {
 
 template<class T>
 AllocationPool<T>::~AllocationPool() {
-    auto key = std::make_pair(allocationSize, CommRank);
+    auto key = std::make_pair(allocationSize, MPIrank);
     pool.insert({key, current});
 }
 

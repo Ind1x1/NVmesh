@@ -224,12 +224,11 @@ void nvmesh::initialize(int _localDevice, std::map<std::string, std::vector<int>
     localHostName = getHostName();
 
     preloadKernels(localDevice);
-    Comm::getWorldSize();
+    MPIWrapper::getWorldSize();
     checkCliques();
 }
 
 void nvmesh::finalize() {
-//FIXME MPI
     int initialized;
     MPI_Initialized(&initialized);
     if (initialized) {
@@ -278,21 +277,21 @@ static int checkCliques() {
         OUTPUT << "WARNING: MNNVL fabric not available. Only single node operation available." << std::endl;
     }
 
-    auto cliqueIdArray = std::vector<unsigned int>(Comm::getWorldSize());
+    auto cliqueIdArray = std::vector<unsigned int>(MPIWrapper::getWorldSize());
     MPI_Allgather(&fabricInfo.cliqueId, 1, MPI_UNSIGNED, &cliqueIdArray[0], 1, MPI_UNSIGNED, MPI_COMM_WORLD);
 
-    auto clusterUuidArray = std::string(Comm::getWorldSize() * NVML_GPU_FABRIC_UUID_LEN, 0);
+    auto clusterUuidArray = std::string(MPIWrapper::getWorldSize() * NVML_GPU_FABRIC_UUID_LEN, 0);
     MPI_Allgather(&fabricInfo.clusterUuid, NVML_GPU_FABRIC_UUID_LEN, MPI_UNSIGNED_CHAR, &clusterUuidArray[0], NVML_GPU_FABRIC_UUID_LEN, MPI_UNSIGNED_CHAR, MPI_COMM_WORLD);
 
-    for (int i = 0; i < Comm::getWorldSize(); i++) {
+    for (int i = 0; i < MPIWrapper::getWorldSize(); i++) {
         if (0 != memcmp(&fabricInfo.clusterUuid, &clusterUuidArray[i * NVML_GPU_FABRIC_UUID_LEN], NVML_GPU_FABRIC_UUID_LEN)) {
-            std::cerr << "Process " << Comm::getWorldRank() << " clusterUuid=" << ((unsigned long *)&fabricInfo.clusterUuid)[0] << ";" << ((unsigned long *)&fabricInfo.clusterUuid)[1] <<
+            std::cerr << "Process " << MPIWrapper::getWorldRank() << " clusterUuid=" << ((unsigned long *)&fabricInfo.clusterUuid)[0] << ";" << ((unsigned long *)&fabricInfo.clusterUuid)[1] <<
                 " is different than process " << i << " clusterUuid=" << ((unsigned long *)&clusterUuidArray[i * NVML_GPU_FABRIC_UUID_LEN])[0] << ";" <<  ((unsigned long *)&clusterUuidArray[i * NVML_GPU_FABRIC_UUID_LEN])[1] << std::endl;
             ASSERT(0);
         }
 
         if (cliqueIdArray[i] != fabricInfo.cliqueId) {
-            std::cerr << "Process " << Comm::getWorldRank() << " cliqueId=" << fabricInfo.cliqueId << " is different than process " << i << " cliqueId=" << cliqueIdArray[i] << std::endl;
+            std::cerr << "Process " << MPIWrapper::getWorldRank() << " cliqueId=" << fabricInfo.cliqueId << " is different than process " << i << " cliqueId=" << cliqueIdArray[i] << std::endl;
             ASSERT(0);
         }
     }

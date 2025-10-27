@@ -31,6 +31,9 @@ enum MemoryPurpose {
     MEMORY_DESTINATION,
 };
 
+
+
+
 // struct rank {
 // private:
 //     static inline int localDevice;
